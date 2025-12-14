@@ -1,0 +1,42 @@
+name: verriflo_classroom
+description: >
+  Production-ready Flutter SDK for embedding live video streaming in education
+  applications. Features adaptive quality control, fullscreen mode, and event
+  callbacks for seamless integration.
+version: 1.0.0
+homepage: https://verriflo.com
+repository: https://github.com/verriflo/flutter-sdk
+issue_tracker: https://github.com/verriflo/flutter-sdk/issues
+documentation: https://docs.verriflo.com/sdk/flutter
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  livekit_client: ^2.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  # No assets or fonts needed
+
+platforms:
+  android:
+  ios:
+  web:
+  macos:
+  windows:
+  linux:
+
+topics:
+  - video
+  - streaming
+  - education
+  - webrtc
+  - classroom
