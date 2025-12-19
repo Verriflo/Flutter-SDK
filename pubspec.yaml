@@ -5,8 +5,8 @@ description: >
   callbacks for seamless integration.
 version: 1.0.0
 homepage: https://verriflo.com
-repository: https://github.com/verriflo/flutter-sdk
-issue_tracker: https://github.com/verriflo/flutter-sdk/issues
+repository: https://github.com/Verriflo/Flutter-SDK
+issue_tracker: https://github.com/Verriflo/Flutter-SDK/issues
 documentation: https://docs.verriflo.com/sdk/flutter
 
 environment:
@@ -16,7 +16,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  livekit_client: ^2.3.1
+  livekit_client: ^2.6.0
+  webview_flutter: ^4.10.0
+  webview_flutter_android: ^4.3.0
+  webview_flutter_wkwebview: ^3.18.0
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

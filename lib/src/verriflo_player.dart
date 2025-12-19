@@ -1,606 +1,566 @@
-import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:livekit_client/livekit_client.dart' as streaming;
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'verriflo_event.dart';
-import 'verriflo_config.dart';
+import 'video_quality.dart';
+import 'classroom_state.dart';
 
-/// Video quality presets for streaming
-enum VideoQuality {
-  auto,
-  high,    // 1080p
-  medium,  // 720p
-  low,     // 480p
-  lowest,  // 360p
-}
+/// Callback signature for SDK events.
+typedef VerrifloEventCallback = void Function(VerrifloEvent event);
 
-/// Video player widget for live streaming
-/// 
-/// Connects to your Verriflo classroom and displays the instructor's stream.
-/// Includes quality control, fullscreen toggle, and event callbacks.
-/// 
-/// Example:
+/// Callback signature for classroom state changes.
+typedef StateChangeCallback = void Function(ClassroomState state);
+
+/// Primary widget for embedding Verriflo live classroom.
+///
+/// Renders an interactive WebView containing the classroom stream with
+/// built-in controls for quality selection and fullscreen mode. Events
+/// from the classroom are forwarded to your app through callbacks.
+///
+/// Basic usage:
 /// ```dart
 /// VerrifloPlayer(
-///   config: VerrifloConfig(
-///     serverUrl: 'wss://stream.verriflo.com',
-///     token: accessToken,
-///   ),
+///   joinUrl: 'https://live.verriflo.com/sdk/live?token=...',
+///   onClassEnded: () => Navigator.pop(context),
+///   onKicked: (reason) => showKickedDialog(reason),
+/// )
+/// ```
+///
+/// For full event access:
+/// ```dart
+/// VerrifloPlayer(
+///   joinUrl: url,
 ///   onEvent: (event) {
-///     if (event.type == VerrifloEventType.classEnded) {
-///       Navigator.pop(context);
+///     switch (event.type) {
+///       case VerrifloEventType.participantJoined:
+///         updateParticipantCount(+1);
+///         break;
+///       // ... handle other events
 ///     }
 ///   },
 /// )
 /// ```
 class VerrifloPlayer extends StatefulWidget {
-  /// Connection configuration (server URL and access token)
-  final VerrifloConfig config;
-  
-  /// Event callback for stream lifecycle events
-  final void Function(VerrifloEvent event)? onEvent;
-  
-  /// Background color when no video is available
+  /// Full URL to the Verriflo SDK page with authentication token.
+  /// Obtain this by calling the SDK join API endpoint.
+  final String joinUrl;
+
+  /// Background color shown while loading or on error.
   final Color backgroundColor;
-  
-  /// Custom loading indicator widget
-  final Widget? loadingWidget;
-  
-  /// Custom widget shown when waiting for stream
-  final Widget? noVideoWidget;
-  
-  /// Corner radius for the player
-  final BorderRadius? borderRadius;
-  
-  /// Show quality selector (YouTube-style popup)
-  final bool showQualitySelector;
-  
-  /// Show fullscreen toggle button
-  final bool showFullscreenButton;
-  
-  /// Initial quality setting
+
+  /// Called when fullscreen toggle is requested by user.
+  /// Implement your own fullscreen logic in the parent widget.
+  final VoidCallback? onFullscreenToggle;
+
+  /// Called when chat button is tapped (fullscreen mode only).
+  final VoidCallback? onChatToggle;
+
+  /// Current fullscreen state. Controls which icon is shown.
+  final bool isFullscreen;
+
+  /// Initial video quality. Defaults to [VideoQuality.auto].
   final VideoQuality initialQuality;
-  
-  /// Overlay widget (rendered on top of video)
-  final Widget? overlay;
-  
+
+  /// Called for every SDK event. Use for comprehensive event handling.
+  final VerrifloEventCallback? onEvent;
+
+  /// Called when classroom state changes.
+  final StateChangeCallback? onStateChanged;
+
+  /// Convenience callback when the class ends.
+  /// Equivalent to checking for [VerrifloEventType.classEnded] in onEvent.
+  final VoidCallback? onClassEnded;
+
+  /// Convenience callback when user is kicked.
+  /// Receives the kick reason if provided.
+  final void Function(String? reason)? onKicked;
+
+  /// Called when an error occurs.
+  final void Function(String message, dynamic error)? onError;
+
+  /// Whether to show the built-in control bar.
+  /// Set to false if you want to build custom controls.
+  final bool showControls;
+
   const VerrifloPlayer({
     super.key,
-    required this.config,
-    this.onEvent,
+    required this.joinUrl,
     this.backgroundColor = Colors.black,
-    this.loadingWidget,
-    this.noVideoWidget,
-    this.borderRadius,
-    this.showQualitySelector = true,
-    this.showFullscreenButton = true,
+    this.onFullscreenToggle,
+    this.onChatToggle,
+    this.isFullscreen = false,
     this.initialQuality = VideoQuality.auto,
-    this.overlay,
+    this.onEvent,
+    this.onStateChanged,
+    this.onClassEnded,
+    this.onKicked,
+    this.onError,
+    this.showControls = true,
   });
-  
+
   @override
-  State<VerrifloPlayer> createState() => VerrifloPlayerState();
+  State<VerrifloPlayer> createState() => _VerrifloPlayerState();
 }
 
-class VerrifloPlayerState extends State<VerrifloPlayer> {
-  // Internal streaming adapter
-  streaming.Room? _streamingRoom;
-  streaming.EventsListener<streaming.RoomEvent>? _eventListener;
-  streaming.RemoteParticipant? _instructor;
-  streaming.VideoTrack? _videoTrack;
-  streaming.RemoteTrackPublication? _trackPub;
-  
-  bool _isConnecting = true;
-  bool _isConnected = false;
-  String? _error;
+class _VerrifloPlayerState extends State<VerrifloPlayer> {
+  late final WebViewController _controller;
+
+  bool _isLoading = true;
+  String? _errorMessage;
+  bool _controlsVisible = true;
+
+  ClassroomState _state = ClassroomState.connecting;
   VideoQuality _currentQuality = VideoQuality.auto;
-  bool _isFullscreen = false;
-  bool _showControls = true;
-  Timer? _hideControlsTimer;
-  
-  /// Connection status
-  bool get isConnected => _isConnected;
-  
-  /// Current quality setting
-  VideoQuality get currentQuality => _currentQuality;
-  
-  /// Fullscreen status
-  bool get isFullscreen => _isFullscreen;
-  
+
+  // Overlay state for ended/kicked screens
+  bool _showEndedOverlay = false;
+  bool _showKickedOverlay = false;
+  String? _kickReason;
+
   @override
   void initState() {
     super.initState();
     _currentQuality = widget.initialQuality;
-    _connect();
-    _startHideControlsTimer();
+    _requestMediaPermissions();
+    _initializeWebView();
   }
-  
-  @override
-  void dispose() {
-    _hideControlsTimer?.cancel();
-    _disconnect();
-    super.dispose();
-  }
-  
-  void _startHideControlsTimer() {
-    _hideControlsTimer?.cancel();
-    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _videoTrack != null) {
-        setState(() => _showControls = false);
-      }
-    });
-  }
-  
-  void _onTap() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) {
-      _startHideControlsTimer();
-    }
-  }
-  
-  Future<void> _connect() async {
+
+  /// Request camera and microphone permissions on mobile platforms.
+  /// Desktop platforms handle this through entitlements/manifests.
+  Future<void> _requestMediaPermissions() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+
     try {
-      setState(() {
-        _isConnecting = true;
-        _error = null;
-      });
-      
-      // Initialize streaming adapter with optimized settings
-      _streamingRoom = streaming.Room(
-        roomOptions: const streaming.RoomOptions(
-          adaptiveStream: true,
-          dynacast: true,
-        ),
-      );
-      
-      _eventListener = _streamingRoom!.createListener();
-      _setupEventHandlers();
-      
-      await _streamingRoom!.connect(
-        widget.config.serverUrl,
-        widget.config.token,
-      );
-      
-      if (mounted) {
-        setState(() {
-          _isConnecting = false;
-          _isConnected = true;
-        });
+      final results = await [Permission.camera, Permission.microphone].request();
+      final denied = results.entries.where((e) => !e.value.isGranted);
+      if (denied.isNotEmpty) {
+        debugPrint('[Verriflo] Some permissions denied: ${denied.map((e) => e.key)}');
       }
-      
-      _emitEvent(const VerrifloEvent(type: VerrifloEventType.connected));
-      _findInstructor();
-      
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isConnecting = false;
-          _error = e.toString();
-        });
-      }
-      
-      _emitEvent(VerrifloEvent(
-        type: VerrifloEventType.error,
-        error: e,
-        message: 'Connection failed: $e',
-      ));
+      debugPrint('[Verriflo] Permission request failed: $e');
     }
   }
-  
-  void _setupEventHandlers() {
-    _eventListener!
-      ..on<streaming.RoomDisconnectedEvent>((event) {
-        if (mounted) {
-          setState(() {
-            _isConnected = false;
-            _videoTrack = null;
-            _instructor = null;
-          });
-        }
-        
-        _emitEvent(VerrifloEvent(
-          type: VerrifloEventType.disconnected,
-          message: event.reason?.name,
-        ));
-        
-        if (event.reason == streaming.DisconnectReason.roomDeleted) {
-          _emitEvent(const VerrifloEvent(type: VerrifloEventType.classEnded));
-        }
-      })
-      ..on<streaming.ParticipantConnectedEvent>((event) {
-        _emitEvent(VerrifloEvent(
-          type: VerrifloEventType.participantJoined,
-          participantId: event.participant.identity,
-          participantName: event.participant.name,
-        ));
-        _checkForInstructor(event.participant);
-      })
-      ..on<streaming.ParticipantDisconnectedEvent>((event) {
-        _emitEvent(VerrifloEvent(
-          type: VerrifloEventType.participantLeft,
-          participantId: event.participant.identity,
-          participantName: event.participant.name,
-        ));
-        
-        if (event.participant == _instructor) {
-          if (mounted) {
-            setState(() {
-              _instructor = null;
-              _videoTrack = null;
-              _trackPub = null;
-            });
-          }
-        }
-      })
-      ..on<streaming.TrackSubscribedEvent>((event) {
-        if (event.track is streaming.VideoTrack) {
-          if (mounted) {
-            setState(() {
-              _instructor = event.participant;
-              _videoTrack = event.track as streaming.VideoTrack;
-              _trackPub = event.publication as streaming.RemoteTrackPublication?;
-            });
-            _applyQuality(_currentQuality);
-          }
-          
-          _emitEvent(VerrifloEvent(
-            type: VerrifloEventType.trackSubscribed,
-            participantId: event.participant.identity,
-          ));
-        }
-      })
-      ..on<streaming.TrackUnsubscribedEvent>((event) {
-        if (event.track == _videoTrack) {
-          if (mounted) {
-            setState(() {
-              _videoTrack = null;
-              _trackPub = null;
-            });
-          }
-          
-          _emitEvent(VerrifloEvent(
-            type: VerrifloEventType.trackUnsubscribed,
-            participantId: event.participant.identity,
-          ));
-        }
+
+  /// Initialize the WebView with platform-specific configuration.
+  void _initializeWebView() {
+    // Platform-specific creation params for media handling
+    late final PlatformWebViewControllerCreationParams params;
+
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    final controller = WebViewController.fromPlatformCreationParams(params);
+
+    controller
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageStarted: (_) => _setLoading(true),
+        onPageFinished: (_) => _setLoading(false),
+        onWebResourceError: (error) {
+          debugPrint('[Verriflo] WebView error: ${error.description}');
+          _handleError('Failed to load classroom', error.description);
+        },
+      ))
+      ..addJavaScriptChannel(
+        'VerrifloSDK',
+        onMessageReceived: _handleJsMessage,
+      )
+      ..loadRequest(Uri.parse(widget.joinUrl));
+
+    // Set background color (not supported on macOS)
+    if (!Platform.isMacOS) {
+      try {
+        controller.setBackgroundColor(widget.backgroundColor);
+      } catch (_) {}
+    }
+
+    // Android-specific: grant WebRTC permissions automatically
+    if (controller.platform is AndroidWebViewController) {
+      final androidController = controller.platform as AndroidWebViewController;
+      androidController.setMediaPlaybackRequiresUserGesture(false);
+      androidController.setOnPlatformPermissionRequest((request) {
+        request.grant();
       });
-  }
-  
-  void _findInstructor() {
-    for (final participant in _streamingRoom!.remoteParticipants.values) {
-      _checkForInstructor(participant);
     }
-  }
-  
-  void _checkForInstructor(streaming.RemoteParticipant participant) {
-    for (final pub in participant.trackPublications.values) {
-      if (pub.track is streaming.VideoTrack && pub.subscribed) {
-        if (mounted) {
-          setState(() {
-            _instructor = participant;
-            _videoTrack = pub.track as streaming.VideoTrack;
-            _trackPub = pub;
-          });
-          _applyQuality(_currentQuality);
-        }
-        return;
-      }
-    }
-  }
-  
-  /// Change video quality
-  void setQuality(VideoQuality quality) {
-    setState(() => _currentQuality = quality);
-    _applyQuality(quality);
-    
-    _emitEvent(VerrifloEvent(
-      type: VerrifloEventType.connectionQualityChanged,
-      message: quality.name,
-    ));
-  }
-  
-  void _applyQuality(VideoQuality quality) {
-    if (_trackPub == null) return;
-    
-    // Apply quality preference to streaming adapter
-    // The adapter uses simulcast layers - we request specific dimensions
-    streaming.VideoDimensions? targetDimensions;
-    
-    switch (quality) {
-      case VideoQuality.auto:
-        // Auto mode: let adaptive streaming decide
-        targetDimensions = null;
-        break;
-      case VideoQuality.high:
-        targetDimensions = const streaming.VideoDimensions(1920, 1080);
-        break;
-      case VideoQuality.medium:
-        targetDimensions = const streaming.VideoDimensions(1280, 720);
-        break;
-      case VideoQuality.low:
-        targetDimensions = const streaming.VideoDimensions(854, 480);
-        break;
-      case VideoQuality.lowest:
-        targetDimensions = const streaming.VideoDimensions(640, 360);
-        break;
-    }
-    
-    // Request specific quality from the streaming adapter
-    if (targetDimensions != null) {
-      _trackPub!.setVideoQuality(streaming.VideoQuality.HIGH);
-      _trackPub!.setVideoFPS(30);
-    } else {
-      // Auto mode - enable adaptive streaming
-      _trackPub!.setVideoQuality(streaming.VideoQuality.HIGH);
-    }
-    
-    if (widget.config.debug) {
-      debugPrint('[VerrifloPlayer] Quality changed to: ${quality.name}');
-    }
-  }
-  
-  /// Toggle fullscreen mode
-  void toggleFullscreen() {
-    setState(() => _isFullscreen = !_isFullscreen);
-    
-    if (_isFullscreen) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    }
-  }
-  
-  void _emitEvent(VerrifloEvent event) {
-    widget.onEvent?.call(event);
-    
-    if (widget.config.debug) {
-      debugPrint('[VerrifloPlayer] $event');
-    }
-  }
-  
-  Future<void> _disconnect() async {
-    _eventListener?.dispose();
-    await _streamingRoom?.disconnect();
-    _streamingRoom?.dispose();
-    _streamingRoom = null;
-  }
-  
-  // YouTube-style popup menu for quality selection
-  void _showQualityPopup(BuildContext context, Offset buttonPosition) {
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    
-    showMenu<VideoQuality>(
-      context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(
-          buttonPosition.dx - 120,
-          buttonPosition.dy - (VideoQuality.values.length * 48.0) - 16,
-          120,
-          48,
-        ),
-        Offset.zero & overlay.size,
-      ),
-      color: const Color(0xF0212121),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      elevation: 8,
-      items: VideoQuality.values.map((quality) => PopupMenuItem<VideoQuality>(
-        value: quality,
-        height: 44,
-        child: Row(
-          children: [
-            if (_currentQuality == quality)
-              const Icon(Icons.check, color: Colors.white, size: 18)
-            else
-              const SizedBox(width: 18),
-            const SizedBox(width: 8),
-            Text(
-              _getQualityLabel(quality),
-              style: TextStyle(
-                color: _currentQuality == quality ? Colors.white : Colors.white70,
-                fontSize: 14,
-                fontWeight: _currentQuality == quality ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      )).toList(),
-    ).then((selected) {
-      if (selected != null) {
-        setQuality(selected);
-      }
+
+    _controller = controller;
+
+    // Send initial quality setting after page loads
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) _sendQualityToIframe(_currentQuality);
     });
   }
-  
-  String _getQualityLabel(VideoQuality quality) {
-    switch (quality) {
-      case VideoQuality.auto:
-        return 'Auto';
-      case VideoQuality.high:
-        return '1080p';
-      case VideoQuality.medium:
-        return '720p';
-      case VideoQuality.low:
-        return '480p';
-      case VideoQuality.lowest:
-        return '360p';
+
+  void _setLoading(bool loading) {
+    if (mounted) setState(() => _isLoading = loading);
+  }
+
+  /// Handle incoming messages from the iframe via JavaScript channel.
+  void _handleJsMessage(JavaScriptMessage message) {
+    try {
+      final data = jsonDecode(message.message) as Map<String, dynamic>;
+      final event = VerrifloEvent.fromMessage(data);
+
+      // Forward to generic event handler
+      widget.onEvent?.call(event);
+
+      // Handle specific event types
+      switch (event.type) {
+        case VerrifloEventType.connected:
+          _updateState(ClassroomState.connected);
+          break;
+
+        case VerrifloEventType.disconnected:
+          _updateState(ClassroomState.idle);
+          break;
+
+        case VerrifloEventType.reconnecting:
+          _updateState(ClassroomState.reconnecting);
+          break;
+
+        case VerrifloEventType.reconnected:
+          _updateState(ClassroomState.connected);
+          break;
+
+        case VerrifloEventType.classEnded:
+          _updateState(ClassroomState.ended);
+          setState(() => _showEndedOverlay = true);
+          widget.onClassEnded?.call();
+          break;
+
+        case VerrifloEventType.participantKicked:
+          _updateState(ClassroomState.kicked);
+          setState(() {
+            _showKickedOverlay = true;
+            _kickReason = event.reason ?? event.message;
+          });
+          widget.onKicked?.call(event.reason ?? event.message);
+          break;
+
+        case VerrifloEventType.error:
+          _handleError(event.message ?? 'Unknown error', event.error);
+          break;
+
+        default:
+          break;
+      }
+    } catch (e) {
+      debugPrint('[Verriflo] Failed to parse JS message: $e');
     }
   }
-  
+
+  void _updateState(ClassroomState newState) {
+    if (_state != newState) {
+      setState(() => _state = newState);
+      widget.onStateChanged?.call(newState);
+    }
+  }
+
+  void _handleError(String message, dynamic error) {
+    _updateState(ClassroomState.error);
+    setState(() => _errorMessage = message);
+    widget.onError?.call(message, error);
+  }
+
+  /// Toggle visibility of the control overlay.
+  void _toggleControls() {
+    setState(() => _controlsVisible = !_controlsVisible);
+  }
+
+  /// Update video quality and notify the iframe.
+  void _setQuality(VideoQuality quality) {
+    setState(() => _currentQuality = quality);
+    _sendQualityToIframe(quality);
+  }
+
+  /// Send quality setting to the iframe via postMessage.
+  void _sendQualityToIframe(VideoQuality quality) {
+    final script = '''
+      window.postMessage({
+        type: 'setQuality',
+        data: { quality: '${quality.jsValue}' }
+      }, '*');
+    ''';
+    _controller.runJavaScript(script);
+  }
+
   @override
   Widget build(BuildContext context) {
-    Widget content;
-    
-    if (_isConnecting) {
-      content = widget.loadingWidget ?? const Center(
-        child: CircularProgressIndicator(color: Colors.white),
-      );
-    } else if (_error != null) {
-      content = Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              'Connection failed',
-              style: TextStyle(color: Colors.white.withAlpha(230)),
-            ),
-            TextButton(
-              onPressed: _connect,
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    } else if (_videoTrack != null) {
-      content = GestureDetector(
-        onTap: _onTap,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Video stream
-            streaming.VideoTrackRenderer(_videoTrack!),
-            
-            // User overlay
-            if (widget.overlay != null) widget.overlay!,
-            
-            // Controls overlay
-            if (_showControls) ...[
-              // Bottom gradient for controls visibility
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 80,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withAlpha(150),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              
-              // Fullscreen button (bottom-left)
-              if (widget.showFullscreenButton)
-                Positioned(
-                  bottom: 12,
-                  left: 12,
-                  child: _ControlButton(
-                    icon: _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                    onPressed: toggleFullscreen,
-                  ),
-                ),
-              
-              // Quality button (bottom-right) - YouTube style
-              if (widget.showQualitySelector)
-                Positioned(
-                  bottom: 12,
-                  right: 12,
-                  child: Builder(
-                    builder: (context) => _ControlButton(
-                      icon: Icons.settings,
-                      label: _currentQuality == VideoQuality.auto 
-                          ? null 
-                          : _getQualityLabel(_currentQuality),
-                      onPressed: () {
-                        final RenderBox button = context.findRenderObject() as RenderBox;
-                        final Offset position = button.localToGlobal(Offset.zero);
-                        _showQualityPopup(context, position);
-                      },
-                    ),
-                  ),
-                ),
-            ],
-          ],
-        ),
-      );
-    } else {
-      content = widget.noVideoWidget ?? Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.videocam_off, color: Colors.white.withAlpha(128), size: 48),
-            const SizedBox(height: 16),
-            Text(
-              'Waiting for stream...',
-              style: TextStyle(color: Colors.white.withAlpha(179)),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    return ClipRRect(
-      borderRadius: widget.borderRadius ?? BorderRadius.zero,
-      child: Container(
-        color: widget.backgroundColor,
-        child: content,
+    return Container(
+      color: widget.backgroundColor,
+      child: Stack(
+        children: [
+          // WebView layer
+          GestureDetector(
+            onTap: _toggleControls,
+            child: WebViewWidget(controller: _controller),
+          ),
+
+          // Loading indicator
+          if (_isLoading) _buildLoadingOverlay(),
+
+          // Error state
+          if (_errorMessage != null && !_isLoading) _buildErrorOverlay(),
+
+          // Class ended overlay
+          if (_showEndedOverlay) _buildEndedOverlay(),
+
+          // Kicked overlay
+          if (_showKickedOverlay) _buildKickedOverlay(),
+
+          // Reconnecting indicator
+          if (_state == ClassroomState.reconnecting) _buildReconnectingBanner(),
+
+          // Control bar
+          if (widget.showControls && _controlsVisible && !_isLoading && !_state.isTerminated)
+            _buildControlBar(),
+        ],
       ),
     );
   }
-}
 
-/// Styled control button for player overlay
-class _ControlButton extends StatelessWidget {
-  final IconData icon;
-  final String? label;
-  final VoidCallback onPressed;
+  Widget _buildLoadingOverlay() {
+    return Container(
+      color: widget.backgroundColor,
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+            SizedBox(height: 16),
+            Text(
+              'Connecting to classroom...',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-  const _ControlButton({
-    required this.icon,
-    this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black54,
-      borderRadius: BorderRadius.circular(4),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
+  Widget _buildErrorOverlay() {
+    return Container(
+      color: widget.backgroundColor,
+      child: Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: label != null ? 10 : 8,
-            vertical: 6,
-          ),
-          child: Row(
+          padding: const EdgeInsets.all(32),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: Colors.white, size: 22),
-              if (label != null) ...[
-                const SizedBox(width: 4),
-                Text(
-                  label!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+              const Icon(Icons.error_outline, color: Colors.red, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage ?? 'An error occurred',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _errorMessage = null);
+                  _controller.reload();
+                },
+                child: const Text('Retry'),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildEndedOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.9),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.videocam_off_outlined, color: Colors.white54, size: 64),
+            SizedBox(height: 24),
+            Text(
+              'Class Ended',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'The instructor has ended this session.',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKickedOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.9),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.block, color: Colors.redAccent, size: 64),
+              const SizedBox(height: 24),
+              const Text(
+                'Removed from Class',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _kickReason ?? 'You have been removed from this classroom.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReconnectingBanner() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        color: Colors.orange.withValues(alpha: 0.9),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Reconnecting...',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlBar() {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Colors.black87, Colors.transparent],
+          ),
+        ),
+        child: Row(
+          children: [
+            // Quality selector
+            _buildQualitySelector(),
+
+            const Spacer(),
+
+            // Chat toggle (fullscreen only)
+            if (widget.onChatToggle != null)
+              IconButton(
+                icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                onPressed: widget.onChatToggle,
+                tooltip: 'Toggle Chat',
+              ),
+
+            // Fullscreen toggle
+            if (widget.onFullscreenToggle != null)
+              IconButton(
+                icon: Icon(
+                  widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                  color: Colors.white,
+                ),
+                onPressed: widget.onFullscreenToggle,
+                tooltip: widget.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQualitySelector() {
+    return PopupMenuButton<VideoQuality>(
+      onSelected: _setQuality,
+      offset: const Offset(0, -160),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: const Color(0xFF2A2A2A),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black38,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.settings, color: Colors.white, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              _currentQuality.label,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+      itemBuilder: (_) => VideoQuality.values.map((quality) {
+        final isSelected = quality == _currentQuality;
+        return PopupMenuItem<VideoQuality>(
+          value: quality,
+          child: Row(
+            children: [
+              if (isSelected)
+                const Icon(Icons.check, color: Colors.white, size: 18)
+              else
+                const SizedBox(width: 18),
+              const SizedBox(width: 8),
+              Text(
+                quality.label,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }
