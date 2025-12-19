@@ -46,7 +46,7 @@ final response = await http.post(
   }),
 );
 
-final token = jsonDecode(response.body)['data']['livekitToken'];
+final token = jsonDecode(response.body)['data']['streamToken'];
 ```
 
 ### Step 2: Show the Player
@@ -60,8 +60,10 @@ class ClassroomPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+  Widget build(BuildContext context) {
+    return Scaffold(
       body: VerrifloPlayer(
-        joinUrl: 'https://live.verriflo.com/sdk/live?token=$token',
+        token: token,
         onClassEnded: () {
           // Teacher ended the class
           Navigator.pop(context);
@@ -90,7 +92,7 @@ For more control, use the `onEvent` callback to respond to any event:
 
 ```dart
 VerrifloPlayer(
-  joinUrl: joinUrl,
+  token: token,
   onEvent: (event) {
     switch (event.type) {
       case VerrifloEventType.connected:
@@ -133,7 +135,7 @@ By default, quality adapts automatically based on network conditions. Users can 
 
 ```dart
 VerrifloPlayer(
-  joinUrl: joinUrl,
+  token: token,
   initialQuality: VideoQuality.auto,  // Default
   // Other options: VideoQuality.high (1080p), .medium (720p), .low (480p)
 )
@@ -143,7 +145,7 @@ The built-in control bar includes a quality selector, or you can hide it and bui
 
 ```dart
 VerrifloPlayer(
-  joinUrl: joinUrl,
+  token: token,
   showControls: false,  // Hide default controls
 )
 ```
@@ -154,7 +156,7 @@ Track the classroom lifecycle with `onStateChanged`:
 
 ```dart
 VerrifloPlayer(
-  joinUrl: joinUrl,
+  token: token,
   onStateChanged: (state) {
     // state is one of: connecting, connected, reconnecting, ended, kicked, error
     if (state == ClassroomState.reconnecting) {
@@ -194,7 +196,8 @@ Add permissions to `android/app/src/main/AndroidManifest.xml`:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `joinUrl` | `String` | Required. The URL with token from API |
+| `token` | `String` | Required. The streaming token from API |
+| `liveBaseUrl` | `String` | Optional. Defaults to `https://live.verriflo.com/sdk/live` |
 | `initialQuality` | `VideoQuality` | Starting quality. Default: `auto` |
 | `showControls` | `bool` | Show built-in control bar. Default: `true` |
 | `onEvent` | `Function(VerrifloEvent)` | All events callback |

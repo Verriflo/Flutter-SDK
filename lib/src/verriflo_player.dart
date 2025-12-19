@@ -25,7 +25,7 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// Basic usage:
 /// ```dart
 /// VerrifloPlayer(
-///   joinUrl: 'https://live.verriflo.com/sdk/live?token=...',
+///   token: 'eyJhbGciOiJIUz...',
 ///   onClassEnded: () => Navigator.pop(context),
 ///   onKicked: (reason) => showKickedDialog(reason),
 /// )
@@ -34,7 +34,7 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// For full event access:
 /// ```dart
 /// VerrifloPlayer(
-///   joinUrl: url,
+///   token: token,
 ///   onEvent: (event) {
 ///     switch (event.type) {
 ///       case VerrifloEventType.participantJoined:
@@ -46,9 +46,13 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// )
 /// ```
 class VerrifloPlayer extends StatefulWidget {
-  /// Full URL to the Verriflo SDK page with authentication token.
+  /// Authentication token for the classroom.
   /// Obtain this by calling the SDK join API endpoint.
-  final String joinUrl;
+  final String token;
+
+  /// Base URL for the Verriflo Live SDK.
+  /// Defaults to 'https://live.verriflo.com/sdk/live'.
+  final String liveBaseUrl;
 
   /// Background color shown while loading or on error.
   final Color backgroundColor;
@@ -89,7 +93,8 @@ class VerrifloPlayer extends StatefulWidget {
 
   const VerrifloPlayer({
     super.key,
-    required this.joinUrl,
+    required this.token,
+    this.liveBaseUrl = 'https://live.verriflo.com/sdk/live',
     this.backgroundColor = Colors.black,
     this.onFullscreenToggle,
     this.onChatToggle,
@@ -176,7 +181,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
         'VerrifloSDK',
         onMessageReceived: _handleJsMessage,
       )
-      ..loadRequest(Uri.parse(widget.joinUrl));
+      ..loadRequest(Uri.parse('${widget.liveBaseUrl}?token=${widget.token}'));
 
     // Set background color (not supported on macOS)
     if (!Platform.isMacOS) {
