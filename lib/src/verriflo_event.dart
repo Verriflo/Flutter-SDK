@@ -66,7 +66,7 @@ enum VerrifloEventType {
 /// Example usage:
 /// ```dart
 /// VerrifloPlayer(
-///   joinUrl: url,
+///   token: token,
 ///   onEvent: (event) {
 ///     if (event.type == VerrifloEventType.classEnded) {
 ///       Navigator.of(context).pop();

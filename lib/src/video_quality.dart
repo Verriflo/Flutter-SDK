@@ -6,7 +6,7 @@
 /// Usage:
 /// ```dart
 /// VerrifloPlayer(
-///   joinUrl: url,
+///   token: token,
 ///   quality: VideoQuality.high,
 /// )
 /// ```

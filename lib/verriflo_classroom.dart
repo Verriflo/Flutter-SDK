@@ -7,12 +7,12 @@
 /// ```dart
 /// import 'package:verriflo_classroom/verriflo_classroom.dart';
 ///
-/// // Obtain token from your backend (call SDK join API)
-/// final joinUrl = 'https://live.verriflo.com/sdk/live?token=$token';
+/// /// // Obtain token from your backend (call SDK join API)
+/// final token = 'eyJhbGciOiJI...';
 ///
 /// // Embed the player
 /// VerrifloPlayer(
-///   joinUrl: joinUrl,
+///   token: token,
 ///   onClassEnded: () => Navigator.pop(context),
 ///   onKicked: (reason) => showDialog(...),
 ///   onEvent: (event) => print('Event: ${event.type}'),
