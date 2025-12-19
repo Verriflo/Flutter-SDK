@@ -22,7 +22,6 @@ dependencies:
   verriflo_classroom:
     git:
       url: https://github.com/Verriflo/Flutter-SDK.git
-      path: verriflo_classroom
 ```
 
 Then run `flutter pub get`.
