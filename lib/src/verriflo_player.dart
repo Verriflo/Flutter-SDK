@@ -306,10 +306,12 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       color: widget.backgroundColor,
       child: Stack(
         children: [
-          // WebView layer
-          GestureDetector(
-            onTap: _toggleControls,
-            child: WebViewWidget(controller: _controller),
+          // WebView layer - Expanded to fill entire container
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _toggleControls,
+              child: WebViewWidget(controller: _controller),
+            ),
           ),
 
           // Loading indicator
