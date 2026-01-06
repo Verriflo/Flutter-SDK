@@ -174,11 +174,20 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       } catch (_) {}
     }
 
-    // Android-specific: allow media playback without user gesture
+    // Android-specific: configure media playback and deny camera/mic permission requests
+    // This is a viewer-only SDK, so we deny all media capture permissions from the web content
     if (controller.platform is AndroidWebViewController) {
       final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
+      // Deny all permission requests from the web content to prevent permission dialogs
+      androidController.setOnPlatformPermissionRequest((request) {
+        request.deny();
+      });
     }
+
+    // iOS/macOS note: WKWebView doesn't expose a permission request handler in webview_flutter.
+    // iOS won't prompt for permissions unless NSCameraUsageDescription and NSMicrophoneUsageDescription
+    // are present in Info.plist, so users should simply not add those keys.
 
     _controller = controller;
 
