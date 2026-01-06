@@ -170,25 +170,17 @@ VerrifloPlayer(
 
 ### iOS
 
-Add camera and microphone permissions to `ios/Runner/Info.plist`:
-
-```xml
-<key>NSCameraUsageDescription</key>
-<string>Camera access is needed for video calls</string>
-<key>NSMicrophoneUsageDescription</key>
-<string>Microphone access is needed for audio</string>
-```
+No special permissions are required. The SDK only receives video/audio streams and doesn't access the camera or microphone.
 
 ### Android
 
-Add permissions to `android/app/src/main/AndroidManifest.xml`:
+Add the internet permission to `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET"/>
-<uses-permission android:name="android.permission.CAMERA"/>
-<uses-permission android:name="android.permission.RECORD_AUDIO"/>
-<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 ```
+
+No camera or microphone permissions are needed since this SDK is for viewing streams only.
 
 ## Full API Reference
 

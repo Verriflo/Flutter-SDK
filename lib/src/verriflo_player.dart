@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
@@ -131,25 +130,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   void initState() {
     super.initState();
     _currentQuality = widget.initialQuality;
-    _requestMediaPermissions();
     _initializeWebView();
   }
 
-  /// Request camera and microphone permissions on mobile platforms.
-  /// Desktop platforms handle this through entitlements/manifests.
-  Future<void> _requestMediaPermissions() async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
 
-    try {
-      final results = await [Permission.camera, Permission.microphone].request();
-      final denied = results.entries.where((e) => !e.value.isGranted);
-      if (denied.isNotEmpty) {
-        debugPrint('[Verriflo] Some permissions denied: ${denied.map((e) => e.key)}');
-      }
-    } catch (e) {
-      debugPrint('[Verriflo] Permission request failed: $e');
-    }
-  }
 
   /// Initialize the WebView with platform-specific configuration.
   void _initializeWebView() {
