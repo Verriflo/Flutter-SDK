@@ -174,13 +174,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       } catch (_) {}
     }
 
-    // Android-specific: grant WebRTC permissions automatically
+    // Android-specific: allow media playback without user gesture
     if (controller.platform is AndroidWebViewController) {
       final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
-      androidController.setOnPlatformPermissionRequest((request) {
-        request.grant();
-      });
     }
 
     _controller = controller;
