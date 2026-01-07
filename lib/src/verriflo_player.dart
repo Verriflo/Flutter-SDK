@@ -193,8 +193,21 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
       // Deny all permission requests from the web content to prevent permission dialogs
+      // Selectively handle permission requests
       androidController.setOnPlatformPermissionRequest((request) {
-        request.deny();
+        debugPrint('[Verriflo] Permission requested: ${request.types}');
+        
+        final types = request.types;
+        final hasCapture = types.contains(WebViewPermissionResourceType.camera) || 
+                           types.contains(WebViewPermissionResourceType.microphone);
+
+        if (hasCapture) {
+          // Explicitly deny camera/mic access to prevent prompts
+          request.deny();
+        } else {
+          // Grant other permissions (e.g. protected media ID for DRM/playback)
+          request.grant(types);
+        }
       });
     }
 
