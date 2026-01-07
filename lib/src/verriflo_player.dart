@@ -206,7 +206,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           request.deny();
         } else {
           // Grant other permissions (e.g. protected media ID for DRM/playback)
-          request.grant(types);
+          request.grant();
         }
       });
     }
