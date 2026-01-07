@@ -133,6 +133,13 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     _initializeWebView();
   }
 
+  @override
+  void dispose() {
+    // Stop all media playback immediately by loading blank page
+    _controller.loadRequest(Uri.parse('about:blank'));
+    super.dispose();
+  }
+
 
 
   /// Initialize the WebView with platform-specific configuration.
@@ -191,9 +198,12 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
     _controller = controller;
 
-    // Send initial quality setting after page loads
+    // Send initial quality setting and enable audio after page loads
     Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) _sendQualityToIframe(_currentQuality);
+      if (mounted) {
+        _sendQualityToIframe(_currentQuality);
+        _enableAudio(); // Resume audio context for autoplay support
+      }
     });
   }
 
@@ -214,6 +224,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       switch (event.type) {
         case VerrifloEventType.connected:
           _updateState(ClassroomState.connected);
+          _enableAudio(); // Ensure audio is enabled when room connects
           break;
 
         case VerrifloEventType.disconnected:
@@ -285,6 +296,18 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       window.postMessage({
         type: 'setQuality',
         data: { quality: '${quality.jsValue}' }
+      }, '*');
+    ''';
+    _controller.runJavaScript(script);
+  }
+
+  /// Enable audio playback in the iframe by resuming the AudioContext.
+  /// This should be called after user interaction to satisfy browser autoplay policies.
+  void _enableAudio() {
+    final script = '''
+      window.postMessage({
+        type: 'enableAudio',
+        data: {}
       }, '*');
     ''';
     _controller.runJavaScript(script);
