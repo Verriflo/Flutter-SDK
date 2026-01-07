@@ -135,8 +135,14 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
   @override
   void dispose() {
-    // Stop all media playback immediately by loading blank page
-    _controller.loadRequest(Uri.parse('about:blank'));
+    debugPrint('[Verriflo] Disposing VerrifloPlayer & stopping playback');
+    // Aggressively stop all media playback
+    try {
+      _controller.runJavaScript("document.querySelectorAll('video, audio').forEach(el => el.pause()); document.body.innerHTML = '';");
+      _controller.loadRequest(Uri.parse('about:blank'));
+    } catch (e) {
+      debugPrint('[Verriflo] Error during dispose cleanup: $e');
+    }
     super.dispose();
   }
 
