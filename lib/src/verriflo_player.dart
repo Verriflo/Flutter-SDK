@@ -474,13 +474,6 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       right: 0,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [Colors.black87, Colors.transparent],
-          ),
-        ),
         child: Row(
           children: [
             // Quality selector
