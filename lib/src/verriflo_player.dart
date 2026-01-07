@@ -94,7 +94,7 @@ class VerrifloPlayer extends StatefulWidget {
     super.key,
     required this.token,
     this.liveBaseUrl = 'https://live.verriflo.com/sdk/live',
-    this.backgroundColor = Colors.black,
+    this.backgroundColor = Colors.transparent,
     this.onFullscreenToggle,
     this.onChatToggle,
     this.isFullscreen = false,
