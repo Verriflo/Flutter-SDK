@@ -94,7 +94,7 @@ class VerrifloPlayer extends StatefulWidget {
     super.key,
     required this.token,
     this.liveBaseUrl = 'https://live.verriflo.com/sdk/live',
-    this.backgroundColor = Colors.transparent,
+    this.backgroundColor = Colors.black,
     this.onFullscreenToggle,
     this.onChatToggle,
     this.isFullscreen = false,
@@ -126,27 +126,15 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   bool _showKickedOverlay = false;
   String? _kickReason;
 
+  // Track if page has successfully loaded to avoid false error overlays
+  bool _pageLoadedSuccessfully = false;
+
   @override
   void initState() {
     super.initState();
     _currentQuality = widget.initialQuality;
     _initializeWebView();
   }
-
-  @override
-  void dispose() {
-    debugPrint('[Verriflo] Disposing VerrifloPlayer & stopping playback');
-    // Aggressively stop all media playback
-    try {
-      _controller.runJavaScript("document.querySelectorAll('video, audio').forEach(el => el.pause()); document.body.innerHTML = '';");
-      _controller.loadRequest(Uri.parse('about:blank'));
-    } catch (e) {
-      debugPrint('[Verriflo] Error during dispose cleanup: $e');
-    }
-    super.dispose();
-  }
-
-
 
   /// Initialize the WebView with platform-specific configuration.
   void _initializeWebView() {
@@ -167,11 +155,48 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => _setLoading(true),
-        onPageFinished: (_) => _setLoading(false),
+        onPageStarted: (_) {
+          _setLoading(true);
+          _pageLoadedSuccessfully = false;
+        },
+        onPageFinished: (_) {
+          _setLoading(false);
+          _pageLoadedSuccessfully = true;
+          // Clear any error message if page loaded successfully
+          if (_errorMessage != null && mounted) {
+            setState(() => _errorMessage = null);
+          }
+        },
         onWebResourceError: (error) {
-          debugPrint('[Verriflo] WebView error: ${error.description}');
-          _handleError('Failed to load classroom', error.description);
+          debugPrint(
+              '[Verriflo] WebView resource error: ${error.description} (type: ${error.errorType}, code: ${error.errorCode})');
+
+          // Only show error overlay if page hasn't loaded successfully
+          // If page has loaded, these are likely non-critical sub-resource errors
+          // (images, CSS, scripts, etc.) that don't prevent the stream from working
+          if (!_pageLoadedSuccessfully) {
+            // Only show error if page hasn't loaded yet - this might be a critical navigation error
+            // Check error code: -2 is often network error, -6 is often hostname not found
+            final isNetworkError =
+                error.errorCode == -2 || error.errorCode == -6;
+            if (isNetworkError) {
+              _handleError('Failed to load classroom', error.description);
+            } else {
+              // For other errors before page load, log but don't show overlay immediately
+              // Wait to see if page loads successfully
+              debugPrint(
+                  '[Verriflo] Resource error before page load, waiting to see if page loads');
+            }
+          } else {
+            // Page has loaded successfully, so this is a non-critical sub-resource error
+            // Don't show error overlay - the stream is working (audio is playing)
+            debugPrint(
+                '[Verriflo] Non-critical resource error ignored (page loaded successfully)');
+          }
+        },
+        onNavigationRequest: (request) {
+          // Allow all navigation requests
+          return NavigationDecision.navigate;
         },
       ))
       ..addJavaScriptChannel(
@@ -193,21 +218,8 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
       // Deny all permission requests from the web content to prevent permission dialogs
-      // Selectively handle permission requests
       androidController.setOnPlatformPermissionRequest((request) {
-        debugPrint('[Verriflo] Permission requested: ${request.types}');
-        
-        final types = request.types;
-        final hasCapture = types.contains(WebViewPermissionResourceType.camera) || 
-                           types.contains(WebViewPermissionResourceType.microphone);
-
-        if (hasCapture) {
-          // Explicitly deny camera/mic access to prevent prompts
-          request.deny();
-        } else {
-          // Grant other permissions (e.g. protected media ID for DRM/playback)
-          request.grant();
-        }
+        request.deny();
       });
     }
 
@@ -217,12 +229,9 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
     _controller = controller;
 
-    // Send initial quality setting and enable audio after page loads
+    // Send initial quality setting after page loads
     Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        _sendQualityToIframe(_currentQuality);
-        _enableAudio(); // Resume audio context for autoplay support
-      }
+      if (mounted) _sendQualityToIframe(_currentQuality);
     });
   }
 
@@ -243,7 +252,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       switch (event.type) {
         case VerrifloEventType.connected:
           _updateState(ClassroomState.connected);
-          _enableAudio(); // Ensure audio is enabled when room connects
+          // Clear any error message when successfully connected
+          if (_errorMessage != null && mounted) {
+            setState(() => _errorMessage = null);
+          }
           break;
 
         case VerrifloEventType.disconnected:
@@ -320,18 +332,6 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     _controller.runJavaScript(script);
   }
 
-  /// Enable audio playback in the iframe by resuming the AudioContext.
-  /// This should be called after user interaction to satisfy browser autoplay policies.
-  void _enableAudio() {
-    final script = '''
-      window.postMessage({
-        type: 'enableAudio',
-        data: {}
-      }, '*');
-    ''';
-    _controller.runJavaScript(script);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -349,8 +349,9 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           // Loading indicator
           if (_isLoading) _buildLoadingOverlay(),
 
-          // Error state
-          if (_errorMessage != null && !_isLoading) _buildErrorOverlay(),
+          // Error state - only show if page hasn't loaded successfully
+          if (_errorMessage != null && !_isLoading && !_pageLoadedSuccessfully)
+            _buildErrorOverlay(),
 
           // Class ended overlay
           if (_showEndedOverlay) _buildEndedOverlay(),
@@ -362,7 +363,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           if (_state == ClassroomState.reconnecting) _buildReconnectingBanner(),
 
           // Control bar
-          if (widget.showControls && _controlsVisible && !_isLoading && !_state.isTerminated)
+          if (widget.showControls &&
+              _controlsVisible &&
+              !_isLoading &&
+              !_state.isTerminated)
             _buildControlBar(),
         ],
       ),
@@ -501,7 +505,8 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             SizedBox(width: 12),
             Text(
               'Reconnecting...',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -516,6 +521,13 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       right: 0,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Colors.black87, Colors.transparent],
+          ),
+        ),
         child: Row(
           children: [
             // Quality selector
@@ -526,7 +538,8 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             // Chat toggle (fullscreen only)
             if (widget.onChatToggle != null)
               IconButton(
-                icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                icon:
+                    const Icon(Icons.chat_bubble_outline, color: Colors.white),
                 onPressed: widget.onChatToggle,
                 tooltip: 'Toggle Chat',
               ),
@@ -535,7 +548,9 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             if (widget.onFullscreenToggle != null)
               IconButton(
                 icon: Icon(
-                  widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                  widget.isFullscreen
+                      ? Icons.fullscreen_exit
+                      : Icons.fullscreen,
                   color: Colors.white,
                 ),
                 onPressed: widget.onFullscreenToggle,
