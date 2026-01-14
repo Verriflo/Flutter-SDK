@@ -131,29 +131,40 @@ class VerrifloEvent {
   }
 
   static VerrifloEventType _parseEventType(String type) {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case 'connected':
         return VerrifloEventType.connected;
       case 'disconnected':
+      case 'user_left':
         return VerrifloEventType.disconnected;
-      case 'participantJoined':
+      case 'participantjoined':
+      case 'participant_joined':
         return VerrifloEventType.participantJoined;
-      case 'participantLeft':
+      case 'participantleft':
+      case 'participant_left':
         return VerrifloEventType.participantLeft;
-      case 'classEnded':
+      case 'classended':
+      case 'class_ended':
         return VerrifloEventType.classEnded;
-      case 'participantKicked':
+      case 'participantkicked':
+      case 'participant_kicked':
+      case 'kicked':
         return VerrifloEventType.participantKicked;
       case 'reconnecting':
         return VerrifloEventType.reconnecting;
       case 'reconnected':
         return VerrifloEventType.reconnected;
-      case 'trackSubscribed':
+      case 'tracksubscribed':
+      case 'track_subscribed':
         return VerrifloEventType.trackSubscribed;
-      case 'trackUnsubscribed':
+      case 'trackunsubscribed':
+      case 'track_unsubscribed':
         return VerrifloEventType.trackUnsubscribed;
-      case 'qualityChanged':
+      case 'qualitychanged':
+      case 'quality_changed':
         return VerrifloEventType.qualityChanged;
+      case 'force_leave_completed':
+        return VerrifloEventType.disconnected;
       case 'error':
       default:
         return VerrifloEventType.error;

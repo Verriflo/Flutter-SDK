@@ -21,13 +21,23 @@
 library;
 
 // Core player widget
-export 'src/verriflo_player.dart' show VerrifloPlayer, VerrifloEventCallback, StateChangeCallback;
+export 'src/verriflo_player.dart'
+    show VerrifloPlayer, VerrifloEventCallback, StateChangeCallback;
+export 'src/verriflo_player_controller.dart';
+
+// API Client
+export 'src/verriflo_client.dart';
+
+// Models
+export 'src/models/models.dart';
 
 // Configuration
 export 'src/verriflo_config.dart' show VerrifloConfig;
 
 // Events and types
 export 'src/verriflo_event.dart' show VerrifloEvent, VerrifloEventType;
+export 'src/iframe_commands.dart' show IframeCommand;
+export 'src/exceptions.dart';
 
 // State management
 export 'src/classroom_state.dart' show ClassroomState, ClassroomStateExtension;
