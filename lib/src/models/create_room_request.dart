@@ -66,7 +66,7 @@ class CreateRoomRequest {
         'settings': {
           if (settings!.maxParticipants != null)
             'maxParticipants': settings!.maxParticipants,
-          if (settings!.autoClose) 'autoClose': settings!.autoClose,
+          'autoClose': settings!.autoClose,
           // Note: emptyTimeout is handled by the server with a default of 1200s (20 min)
         },
     };
