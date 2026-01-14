@@ -222,11 +222,48 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => _setLoading(true),
-        onPageFinished: (_) => _setLoading(false),
+        onPageStarted: (_) {
+          _setLoading(true);
+          _pageLoadedSuccessfully = false;
+        },
+        onPageFinished: (_) {
+          _setLoading(false);
+          _pageLoadedSuccessfully = true;
+          // Clear any error message if page loaded successfully
+          if (_errorMessage != null && mounted) {
+            setState(() => _errorMessage = null);
+          }
+        },
         onWebResourceError: (error) {
-          debugPrint('[Verriflo] WebView error: ${error.description}');
-          _handleError('Failed to load classroom', error.description);
+          debugPrint(
+              '[Verriflo] WebView resource error: ${error.description} (type: ${error.errorType}, code: ${error.errorCode})');
+
+          // Only show error overlay if page hasn't loaded successfully
+          // If page has loaded, these are likely non-critical sub-resource errors
+          // (images, CSS, scripts, etc.) that don't prevent the stream from working
+          if (!_pageLoadedSuccessfully) {
+            // Only show error if page hasn't loaded yet - this might be a critical navigation error
+            // Check error code: -2 is often network error, -6 is often hostname not found
+            final isNetworkError =
+                error.errorCode == -2 || error.errorCode == -6;
+            if (isNetworkError) {
+              _handleError('Failed to load classroom', error.description);
+            } else {
+              // For other errors before page load, log but don't show overlay immediately
+              // Wait to see if page loads successfully
+              debugPrint(
+                  '[Verriflo] Resource error before page load, waiting to see if page loads');
+            }
+          } else {
+            // Page has loaded successfully, so this is a non-critical sub-resource error
+            // Don't show error overlay - the stream is working (audio is playing)
+            debugPrint(
+                '[Verriflo] Non-critical resource error ignored (page loaded successfully)');
+          }
+        },
+        onNavigationRequest: (request) {
+          // Allow all navigation requests
+          return NavigationDecision.navigate;
         },
       ))
       ..addJavaScriptChannel(
@@ -251,7 +288,6 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
       // Deny all permission requests from the web content to prevent permission dialogs
-      // Selectively handle permission requests
       androidController.setOnPlatformPermissionRequest((request) {
         debugPrint('[Verriflo] Permission requested: ${request.types}');
 
@@ -281,10 +317,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
     // Send initial quality setting and enable audio after page loads
     Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        _sendQualityToIframe(_currentQuality);
-        _enableAudio(); // Resume audio context for autoplay support
-      }
+      if (mounted) _sendQualityToIframe(_currentQuality);
     });
   }
 
@@ -370,7 +403,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       switch (event.type) {
         case VerrifloEventType.connected:
           _updateState(ClassroomState.connected);
-          _enableAudio(); // Ensure audio is enabled when room connects
+          // Clear any error message when successfully connected
+          if (_errorMessage != null && mounted) {
+            setState(() => _errorMessage = null);
+          }
           break;
 
         case VerrifloEventType.disconnected:
@@ -482,8 +518,9 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           // Loading indicator
           if (_isLoading) _buildLoadingOverlay(),
 
-          // Error state
-          if (_errorMessage != null && !_isLoading) _buildErrorOverlay(),
+          // Error state - only show if page hasn't loaded successfully
+          if (_errorMessage != null && !_isLoading && !_pageLoadedSuccessfully)
+            _buildErrorOverlay(),
 
           // Class ended overlay
           if (_showEndedOverlay) _buildEndedOverlay(),
@@ -653,6 +690,13 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       right: 0,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Colors.black87, Colors.transparent],
+          ),
+        ),
         child: Row(
           children: [
             // Quality selector
