@@ -105,13 +105,12 @@ class VerrifloPlayerController extends ChangeNotifier {
   /// [reason] Optional reason message to display.
   /// [roomName] Optional room name to verify (for security).
   Future<void> forceLeave({String? reason, String? roomName}) async {
-    final script = '''
-      window.postMessage({
-        type: 'verriflo_force_leave',
-        ${roomName != null ? "roomName: '$roomName'," : ''}
-        ${reason != null ? "reason: '$reason'," : ''}
-      }, '*');
-    ''';
+    final payload = jsonEncode({
+      'type': 'verriflo_force_leave',
+      if (roomName != null) 'roomName': roomName,
+      if (reason != null) 'reason': reason,
+    });
+    final script = "window.postMessage($payload, '*');";
 
     try {
       await _webViewController?.runJavaScript(script);
