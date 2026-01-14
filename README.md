@@ -248,7 +248,7 @@ The iframe will receive the `verriflo_force_leave` message and disconnect the pa
 |----------|------|-------------|
 | `token` | `String?` | Authentication token (optional if `iframeUrl` provided) |
 | `iframeUrl` | `String?` | Full iframe URL with token (alternative to separate `token`/`liveBaseUrl`) |
-| `liveBaseUrl` | `String` | Base URL for iframe (ignored if `iframeUrl` provided). Default: `https://staging.live.verriflo.com/iframe/live` |
+| `liveBaseUrl` | `String` | Base URL for iframe (ignored if `iframeUrl` provided). Default: `https://live.verriflo.com/iframe/live` |
 | `controller` | `VerrifloPlayerController?` | Optional controller for programmatic control |
 | `initialQuality` | `VideoQuality` | Starting quality. Default: `auto` |
 | `showControls` | `bool` | Show built-in control bar. Default: `true` |
