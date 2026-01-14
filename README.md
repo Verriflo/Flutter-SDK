@@ -30,23 +30,54 @@ Then run `flutter pub get`.
 
 ### Step 1: Get a Token
 
-Your backend needs to call our API to get a streaming token. Here's what that looks like from Flutter (though you'd typically do this server-side):
+Use the `VerrifloClient` to create a room or join an existing one:
 
 ```dart
-final response = await http.post(
-  Uri.parse('https://api.verriflo.com/v1/live/sdk/join'),
-  headers: {
-    'Content-Type': 'application/json',
-    'VF-ORG-ID': 'your-org-id',  // From your Verriflo dashboard
-  },
-  body: jsonEncode({
-    'roomId': 'math-101',
-    'name': 'Jane Student', 
-    'email': 'jane@school.edu',
-  }),
+import 'package:verriflo_classroom/verriflo_classroom.dart';
+
+// Initialize the client
+final client = VerrifloClient(
+  baseUrl: 'https://api.verriflo.com',
+  organizationId: 'your-org-id',  // From your Verriflo dashboard
 );
 
-final token = jsonDecode(response.body)['data']['streamToken'];
+// Create a room (for teachers)
+final createResponse = await client.createRoom(
+  CreateRoomRequest(
+    roomId: 'math-101',
+    title: 'Math 101 - Algebra',
+    participant: Participant(
+      uid: 'teacher-123',
+      name: 'John Teacher',
+      role: ParticipantRole.teacher,
+    ),
+    customization: Customization(
+      showLobby: true,
+      needChat: true,
+      needControlbar: true,
+    ),
+  ),
+);
+
+final token = createResponse.token;
+final iframeUrl = createResponse.iframeUrl;
+
+// Or join an existing room (for students)
+final joinResponse = await client.joinRoom(
+  'math-101',
+  JoinRoomRequest(
+    participant: Participant(
+      uid: 'student-456',
+      name: 'Jane Student',
+      role: ParticipantRole.student,
+    ),
+    customization: Customization(
+      showLobby: true,
+    ),
+  ),
+);
+
+final token = joinResponse.token;
 ```
 
 ### Step 2: Show the Player
@@ -55,15 +86,13 @@ final token = jsonDecode(response.body)['data']['streamToken'];
 import 'package:verriflo_classroom/verriflo_classroom.dart';
 
 class ClassroomPage extends StatelessWidget {
-  final String token;
-  
+  final String iframeUrl; // From CreateRoomResponse or JoinResponse
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-  Widget build(BuildContext context) {
-    return Scaffold(
       body: VerrifloPlayer(
-        token: token,
+        iframeUrl: iframeUrl,  // Pass the full iframe URL directly
         onClassEnded: () {
           // Teacher ended the class
           Navigator.pop(context);
@@ -182,14 +211,45 @@ Add the internet permission to `android/app/src/main/AndroidManifest.xml`:
 
 No camera or microphone permissions are needed since this SDK is for viewing streams only.
 
+## Force Leave Support
+
+You can programmatically force a participant to leave the classroom:
+
+```dart
+final controller = VerrifloPlayerController();
+
+VerrifloPlayer(
+  token: token,
+  controller: controller,
+);
+
+// Force leave with optional reason
+await controller.forceLeave(
+  reason: 'Session timeout',
+  roomName: 'math-101',  // Optional: verify room name
+);
+```
+
+The iframe will receive the `verriflo_force_leave` message and disconnect the participant.
+
 ## Full API Reference
+
+### VerrifloClient
+
+| Method | Description |
+|--------|-------------|
+| `createRoom(CreateRoomRequest)` | Create a new classroom room |
+| `joinRoom(String roomId, JoinRoomRequest)` | Join an existing room |
+| `isRoomActive(String roomId)` | Check if a room is active |
 
 ### VerrifloPlayer
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `token` | `String` | Required. The streaming token from API |
-| `liveBaseUrl` | `String` | Optional. Defaults to `https://live.verriflo.com/sdk/live` |
+| `token` | `String?` | Authentication token (optional if `iframeUrl` provided) |
+| `iframeUrl` | `String?` | Full iframe URL with token (alternative to separate `token`/`liveBaseUrl`) |
+| `liveBaseUrl` | `String` | Base URL for iframe (ignored if `iframeUrl` provided). Default: `https://staging.live.verriflo.com/iframe/live` |
+| `controller` | `VerrifloPlayerController?` | Optional controller for programmatic control |
 | `initialQuality` | `VideoQuality` | Starting quality. Default: `auto` |
 | `showControls` | `bool` | Show built-in control bar. Default: `true` |
 | `onEvent` | `Function(VerrifloEvent)` | All events callback |

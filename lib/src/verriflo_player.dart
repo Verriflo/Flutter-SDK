@@ -8,6 +8,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'verriflo_event.dart';
 import 'video_quality.dart';
 import 'classroom_state.dart';
+import 'verriflo_player_controller.dart';
 
 /// Callback signature for SDK events.
 typedef VerrifloEventCallback = void Function(VerrifloEvent event);
@@ -21,7 +22,7 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// built-in controls for quality selection and fullscreen mode. Events
 /// from the classroom are forwarded to your app through callbacks.
 ///
-/// Basic usage:
+/// Basic usage with token:
 /// ```dart
 /// VerrifloPlayer(
 ///   token: 'eyJhbGciOiJIUz...',
@@ -30,27 +31,43 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// )
 /// ```
 ///
-/// For full event access:
+/// Or with full iframe URL (recommended):
 /// ```dart
 /// VerrifloPlayer(
-///   token: token,
-///   onEvent: (event) {
-///     switch (event.type) {
-///       case VerrifloEventType.participantJoined:
-///         updateParticipantCount(+1);
-///         break;
-///       // ... handle other events
-///     }
-///   },
+///   iframeUrl: 'https://live.verriflo.com/iframe/live?token=eyJ...',
+///   onClassEnded: () => Navigator.pop(context),
+///   onKicked: (reason) => showKickedDialog(reason),
 /// )
+/// ```
+///
+/// With programmatic control:
+/// ```dart
+/// final controller = VerrifloPlayerController();
+///
+/// VerrifloPlayer(
+///   iframeUrl: iframeUrl,
+///   controller: controller,
+/// );
+///
+/// await controller.forceLeave();
 /// ```
 class VerrifloPlayer extends StatefulWidget {
   /// Authentication token for the classroom.
   /// Obtain this by calling the SDK join API endpoint.
-  final String token;
+  /// Optional if [iframeUrl] is provided.
+  final String? token;
 
-  /// Base URL for the Verriflo Live SDK.
-  /// Defaults to 'https://live.verriflo.com/sdk/live'.
+  /// Optional controller for programmatic control.
+  final VerrifloPlayerController? controller;
+
+  /// Full iframe URL containing the token.
+  /// If provided, [token] and [liveBaseUrl] are extracted from this URL.
+  /// Example: 'https://staging.live.verriflo.com/iframe/live?token=eyJ...'
+  final String? iframeUrl;
+
+  /// Base URL for the Verriflo Live iframe.
+  /// Defaults to 'https://live.verriflo.com/iframe/live'.
+  /// Ignored if [iframeUrl] is provided.
   final String liveBaseUrl;
 
   /// Background color shown while loading or on error.
@@ -92,8 +109,10 @@ class VerrifloPlayer extends StatefulWidget {
 
   const VerrifloPlayer({
     super.key,
-    required this.token,
-    this.liveBaseUrl = 'https://live.verriflo.com/sdk/live',
+    this.token,
+    this.controller,
+    this.iframeUrl,
+    this.liveBaseUrl = 'https://live.verriflo.com/iframe/live',
     this.backgroundColor = Colors.transparent,
     this.onFullscreenToggle,
     this.onChatToggle,
@@ -105,7 +124,11 @@ class VerrifloPlayer extends StatefulWidget {
     this.onKicked,
     this.onError,
     this.showControls = true,
-  });
+  }) : assert(
+          (token != null && iframeUrl == null) ||
+              (token == null && iframeUrl != null),
+          'Either token or iframeUrl must be provided, but not both',
+        );
 
   @override
   State<VerrifloPlayer> createState() => _VerrifloPlayerState();
@@ -126,27 +149,59 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   bool _showKickedOverlay = false;
   String? _kickReason;
 
+  // Parsed values from iframeUrl
+  late final String _effectiveToken;
+  late final String _effectiveBaseUrl;
+
   @override
   void initState() {
     super.initState();
     _currentQuality = widget.initialQuality;
+
+    // Parse iframeUrl if provided, otherwise use separate token/baseUrl
+    if (widget.iframeUrl != null) {
+      final parsed = _parseIframeUrl(widget.iframeUrl!);
+      _effectiveToken = parsed.token;
+      _effectiveBaseUrl = parsed.baseUrl;
+    } else {
+      _effectiveToken = widget.token!;
+      _effectiveBaseUrl = widget.liveBaseUrl;
+    }
+
     _initializeWebView();
+  }
+
+  /// Parse iframe URL to extract token and base URL.
+  ({String token, String baseUrl}) _parseIframeUrl(String iframeUrl) {
+    final uri = Uri.parse(iframeUrl);
+    final token = uri.queryParameters['token'];
+
+    if (token == null || token.isEmpty) {
+      throw ArgumentError('iframeUrl must contain a token parameter');
+    }
+
+    // Extract base URL (everything before query parameters)
+    final baseUrl =
+        '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}${uri.path}';
+
+    return (token: token, baseUrl: baseUrl);
   }
 
   @override
   void dispose() {
     debugPrint('[Verriflo] Disposing VerrifloPlayer & stopping playback');
+    widget.controller?.detach();
+
     // Aggressively stop all media playback
     try {
-      _controller.runJavaScript("document.querySelectorAll('video, audio').forEach(el => el.pause()); document.body.innerHTML = '';");
+      _controller.runJavaScript(
+          "document.querySelectorAll('video, audio').forEach(el => el.pause()); document.body.innerHTML = '';");
       _controller.loadRequest(Uri.parse('about:blank'));
     } catch (e) {
       debugPrint('[Verriflo] Error during dispose cleanup: $e');
     }
     super.dispose();
   }
-
-
 
   /// Initialize the WebView with platform-specific configuration.
   void _initializeWebView() {
@@ -178,7 +233,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
         'VerrifloSDK',
         onMessageReceived: _handleJsMessage,
       )
-      ..loadRequest(Uri.parse('${widget.liveBaseUrl}?token=${widget.token}'));
+      ..loadRequest(Uri.parse('$_effectiveBaseUrl?token=$_effectiveToken'));
+
+    // Listen for postMessage events from iframe (for force leave and other events)
+    _setupPostMessageListener(controller);
 
     // Set background color (not supported on macOS)
     if (!Platform.isMacOS) {
@@ -196,10 +254,11 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
       // Selectively handle permission requests
       androidController.setOnPlatformPermissionRequest((request) {
         debugPrint('[Verriflo] Permission requested: ${request.types}');
-        
+
         final types = request.types;
-        final hasCapture = types.contains(WebViewPermissionResourceType.camera) || 
-                           types.contains(WebViewPermissionResourceType.microphone);
+        final hasCapture =
+            types.contains(WebViewPermissionResourceType.camera) ||
+                types.contains(WebViewPermissionResourceType.microphone);
 
         if (hasCapture) {
           // Explicitly deny camera/mic access to prevent prompts
@@ -217,11 +276,44 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
     _controller = controller;
 
+    // Attach controller if provided
+    widget.controller?.attach(controller);
+
     // Send initial quality setting and enable audio after page loads
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
         _sendQualityToIframe(_currentQuality);
         _enableAudio(); // Resume audio context for autoplay support
+      }
+    });
+  }
+
+  /// Setup postMessage listener to receive events from iframe.
+  ///
+  /// The iframe sends events via window.postMessage with type 'verriflo_classroom'.
+  void _setupPostMessageListener(WebViewController controller) {
+    // Inject JavaScript to listen for postMessage events
+    const script = '''
+      (function() {
+        window.addEventListener('message', function(event) {
+          // Only handle messages from the iframe (verriflo_classroom type)
+          if (event.data && event.data.type === 'verriflo_classroom') {
+            // Forward to Flutter via JavaScript channel
+            VerrifloSDK.postMessage(JSON.stringify({
+              type: event.data.action || event.data.type,
+              roomId: event.data.roomId,
+              reason: event.data.reason,
+              message: event.data.message || event.data.action
+            }));
+          }
+        });
+      })();
+    ''';
+
+    // Inject after page loads
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        controller.runJavaScript(script);
       }
     });
   }
@@ -234,7 +326,42 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   void _handleJsMessage(JavaScriptMessage message) {
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
-      final event = VerrifloEvent.fromMessage(data);
+
+      // Map action strings to event types
+      final action = data['type'] as String? ?? '';
+      VerrifloEventType eventType;
+
+      switch (action) {
+        case 'participant_left':
+        case 'user_left':
+          eventType = VerrifloEventType.disconnected;
+          break;
+        case 'class_ended':
+          eventType = VerrifloEventType.classEnded;
+          break;
+        case 'kicked':
+          eventType = VerrifloEventType.participantKicked;
+          break;
+        case 'participant_joined':
+          eventType = VerrifloEventType.participantJoined;
+          break;
+        case 'force_leave_completed':
+          eventType = VerrifloEventType.disconnected;
+          break;
+        default:
+          // Try to parse as standard event format
+          final event = VerrifloEvent.fromMessage(data);
+          eventType = event.type;
+      }
+
+      final event = VerrifloEvent(
+        type: eventType,
+        participantId: data['participantId'] as String?,
+        participantName: data['participantName'] as String?,
+        message: data['message'] as String?,
+        reason: data['reason'] as String?,
+        timestamp: DateTime.now(),
+      );
 
       // Forward to generic event handler
       widget.onEvent?.call(event);
@@ -247,7 +374,12 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           break;
 
         case VerrifloEventType.disconnected:
-          _updateState(ClassroomState.idle);
+          if (action == 'participant_left' || action == 'user_left') {
+            // User voluntarily left - don't show overlay
+            _updateState(ClassroomState.idle);
+          } else {
+            _updateState(ClassroomState.idle);
+          }
           break;
 
         case VerrifloEventType.reconnecting:
@@ -289,6 +421,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     if (_state != newState) {
       setState(() => _state = newState);
       widget.onStateChanged?.call(newState);
+      widget.controller?.updateState(newState);
     }
   }
 
@@ -323,7 +456,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   /// Enable audio playback in the iframe by resuming the AudioContext.
   /// This should be called after user interaction to satisfy browser autoplay policies.
   void _enableAudio() {
-    final script = '''
+    const script = '''
       window.postMessage({
         type: 'enableAudio',
         data: {}
@@ -362,7 +495,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
           if (_state == ClassroomState.reconnecting) _buildReconnectingBanner(),
 
           // Control bar
-          if (widget.showControls && _controlsVisible && !_isLoading && !_state.isTerminated)
+          if (widget.showControls &&
+              _controlsVisible &&
+              !_isLoading &&
+              !_state.isTerminated)
             _buildControlBar(),
         ],
       ),
@@ -501,7 +637,8 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             SizedBox(width: 12),
             Text(
               'Reconnecting...',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -526,7 +663,8 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             // Chat toggle (fullscreen only)
             if (widget.onChatToggle != null)
               IconButton(
-                icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                icon:
+                    const Icon(Icons.chat_bubble_outline, color: Colors.white),
                 onPressed: widget.onChatToggle,
                 tooltip: 'Toggle Chat',
               ),
@@ -535,7 +673,9 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
             if (widget.onFullscreenToggle != null)
               IconButton(
                 icon: Icon(
-                  widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                  widget.isFullscreen
+                      ? Icons.fullscreen_exit
+                      : Icons.fullscreen,
                   color: Colors.white,
                 ),
                 onPressed: widget.onFullscreenToggle,
