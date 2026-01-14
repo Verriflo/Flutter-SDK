@@ -79,7 +79,9 @@ class JoinResponse {
     }
 
     return JoinResponse(
-      token: data['token'] as String? ?? data['accessToken'] as String,
+      token: data['token'] as String? ??
+          data['accessToken'] as String? ??
+          (throw FormatException('Missing required field: token or accessToken')),
       liveUrl: liveUrl,
       serverUrl: data['serverUrl'] as String? ?? '',
       customization: data['customization'] != null
