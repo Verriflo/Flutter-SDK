@@ -134,7 +134,7 @@ class _ClassroomExampleState extends State<ClassroomExample> {
 
   @override
   Widget build(BuildContext context) {
-    if (_token == null) {
+    if (_iframeUrl == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Verriflo Classroom Example')),
         body: Padding(
