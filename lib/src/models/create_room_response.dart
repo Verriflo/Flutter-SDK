@@ -40,7 +40,7 @@ class CreateRoomResponse {
     return CreateRoomResponse(
       token: data['token'] as String,
       iframeUrl: data['iframeUrl'] as String,
-      roomId: data['roomId'] as String? ?? '',
+      roomId: data['roomId'] as String,
       expiresAt: expiresAt,
     );
   }
