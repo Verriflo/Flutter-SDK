@@ -7,6 +7,7 @@ Embed live video classrooms in your Flutter app with just a few lines of code. B
 We built this because integrating live video into education apps shouldn't require a WebRTC PhD. The SDK handles all the messy bits—ICE candidates, TURN servers, adaptive bitrate, reconnection logic—so you can focus on your app.
 
 **What you get:**
+
 - Drop-in `VerrifloPlayer` widget that just works
 - Quality control (auto-adaptive or manual 480p/720p/1080p)
 - Event callbacks for class lifecycle (ended, kicked, reconnecting)
@@ -121,7 +122,7 @@ For more control, use the `onEvent` callback to respond to any event:
 
 ```dart
 VerrifloPlayer(
-  token: token,
+  iframeUrl: iframeUrl,
   onEvent: (event) {
     switch (event.type) {
       case VerrifloEventType.connected:
@@ -145,18 +146,18 @@ VerrifloPlayer(
 
 ### Available Events
 
-| Event | When it fires |
-|-------|---------------|
-| `connected` | Successfully joined the classroom |
-| `disconnected` | Left or lost connection |
-| `reconnecting` | Connection dropped, trying to reconnect |
-| `reconnected` | Back online after reconnection |
-| `classEnded` | Instructor ended the session |
-| `participantKicked` | You were removed from the classroom |
-| `participantJoined` | Someone else joined |
-| `participantLeft` | Someone else left |
-| `qualityChanged` | Video quality was adjusted |
-| `error` | Something went wrong |
+| Event               | When it fires                           |
+| ------------------- | --------------------------------------- |
+| `connected`         | Successfully joined the classroom       |
+| `disconnected`      | Left or lost connection                 |
+| `reconnecting`      | Connection dropped, trying to reconnect |
+| `reconnected`       | Back online after reconnection          |
+| `classEnded`        | Instructor ended the session            |
+| `participantKicked` | You were removed from the classroom     |
+| `participantJoined` | Someone else joined                     |
+| `participantLeft`   | Someone else left                       |
+| `qualityChanged`    | Video quality was adjusted              |
+| `error`             | Something went wrong                    |
 
 ## Video Quality
 
@@ -164,7 +165,7 @@ By default, quality adapts automatically based on network conditions. Users can 
 
 ```dart
 VerrifloPlayer(
-  token: token,
+  iframeUrl: iframeUrl,
   initialQuality: VideoQuality.auto,  // Default
   // Other options: VideoQuality.high (1080p), .medium (720p), .low (480p)
 )
@@ -174,7 +175,7 @@ The built-in control bar includes a quality selector, or you can hide it and bui
 
 ```dart
 VerrifloPlayer(
-  token: token,
+  iframeUrl: iframeUrl,
   showControls: false,  // Hide default controls
 )
 ```
@@ -185,7 +186,7 @@ Track the classroom lifecycle with `onStateChanged`:
 
 ```dart
 VerrifloPlayer(
-  token: token,
+  iframeUrl: iframeUrl,
   onStateChanged: (state) {
     // state is one of: connecting, connected, reconnecting, ended, kicked, error
     if (state == ClassroomState.reconnecting) {
@@ -219,7 +220,7 @@ You can programmatically force a participant to leave the classroom:
 final controller = VerrifloPlayerController();
 
 VerrifloPlayer(
-  token: token,
+  iframeUrl: iframeUrl,
   controller: controller,
 );
 
@@ -236,30 +237,28 @@ The iframe will receive the `verriflo_force_leave` message and disconnect the pa
 
 ### VerrifloClient
 
-| Method | Description |
-|--------|-------------|
-| `createRoom(CreateRoomRequest)` | Create a new classroom room |
-| `joinRoom(String roomId, JoinRoomRequest)` | Join an existing room |
-| `isRoomActive(String roomId)` | Check if a room is active |
+| Method                                     | Description                 |
+| ------------------------------------------ | --------------------------- |
+| `createRoom(CreateRoomRequest)`            | Create a new classroom room |
+| `joinRoom(String roomId, JoinRoomRequest)` | Join an existing room       |
+| `isRoomActive(String roomId)`              | Check if a room is active   |
 
 ### VerrifloPlayer
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `token` | `String?` | Authentication token (optional if `iframeUrl` provided) |
-| `iframeUrl` | `String?` | Full iframe URL with token (alternative to separate `token`/`liveBaseUrl`) |
-| `liveBaseUrl` | `String` | Base URL for iframe (ignored if `iframeUrl` provided). Default: `https://live.verriflo.com/iframe/live` |
-| `controller` | `VerrifloPlayerController?` | Optional controller for programmatic control |
-| `initialQuality` | `VideoQuality` | Starting quality. Default: `auto` |
-| `showControls` | `bool` | Show built-in control bar. Default: `true` |
-| `onEvent` | `Function(VerrifloEvent)` | All events callback |
-| `onStateChanged` | `Function(ClassroomState)` | Lifecycle state callback |
-| `onClassEnded` | `VoidCallback` | Convenience callback for class end |
-| `onKicked` | `Function(String?)` | Convenience callback for removal |
-| `onError` | `Function(String, dynamic)` | Error callback |
-| `onFullscreenToggle` | `VoidCallback` | Handle fullscreen changes |
-| `isFullscreen` | `bool` | Current fullscreen state |
-| `backgroundColor` | `Color` | Background color. Default: black |
+| Property             | Type                        | Description                                                       |
+| -------------------- | --------------------------- | ----------------------------------------------------------------- |
+| `iframeUrl`          | `String?`                   | Full iframe URL with token. Mandatory for session initialization. |
+| `controller`         | `VerrifloPlayerController?` | Optional controller for programmatic control                      |
+| `initialQuality`     | `VideoQuality`              | Starting quality. Default: `auto`                                 |
+| `showControls`       | `bool`                      | Show built-in control bar. Default: `true`                        |
+| `onEvent`            | `Function(VerrifloEvent)`   | All events callback                                               |
+| `onStateChanged`     | `Function(ClassroomState)`  | Lifecycle state callback                                          |
+| `onClassEnded`       | `VoidCallback`              | Convenience callback for class end                                |
+| `onKicked`           | `Function(String?)`         | Convenience callback for removal                                  |
+| `onError`            | `Function(String, dynamic)` | Error callback                                                    |
+| `onFullscreenToggle` | `VoidCallback`              | Handle fullscreen changes                                         |
+| `isFullscreen`       | `bool`                      | Current fullscreen state                                          |
+| `backgroundColor`    | `Color`                     | Background color. Default: black                                  |
 
 ### VideoQuality
 

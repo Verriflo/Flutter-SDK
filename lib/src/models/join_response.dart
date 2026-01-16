@@ -11,11 +11,10 @@ class JoinResponse {
   /// Pass this to [VerrifloPlayer.token] to connect.
   final String token;
 
-  /// Base URL for the live iframe.
+  /// Full iframe URL with token parameter.
   ///
-  /// Typically the default Verriflo live URL, but may be customized
-  /// for self-hosted or regional deployments.
-  final String liveUrl;
+  /// Use this URL directly in the WebView or iframe.
+  final String iframeUrl;
 
   /// LiveKit server URL for media streaming.
   final String serverUrl;
@@ -42,7 +41,7 @@ class JoinResponse {
   /// Creates a join response.
   const JoinResponse({
     required this.token,
-    required this.liveUrl,
+    required this.iframeUrl,
     required this.serverUrl,
     this.customization,
     this.roomSettings,
@@ -65,24 +64,14 @@ class JoinResponse {
       );
     }
 
-    // Extract iframe URL or build from token
-    String? liveUrl;
-    if (data['iframeUrl'] != null) {
-      final iframeUrl = data['iframeUrl'] as String;
-      // Extract base URL from iframe URL
-      final uri = Uri.parse(iframeUrl);
-      liveUrl =
-          '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
-    } else {
-      liveUrl =
-          data['liveUrl'] as String? ?? 'https://staging.live.verriflo.com';
-    }
+    final iframeUrl = data['iframeUrl'] as String? ?? '';
 
     return JoinResponse(
       token: data['token'] as String? ??
           data['accessToken'] as String? ??
-          (throw FormatException('Missing required field: token or accessToken')),
-      liveUrl: liveUrl,
+          (throw const FormatException(
+              'Missing required field: token or accessToken')),
+      iframeUrl: iframeUrl,
       serverUrl: data['serverUrl'] as String? ?? '',
       customization: data['customization'] != null
           ? Customization.fromJson(
@@ -116,5 +105,6 @@ class JoinResponse {
   }
 
   @override
-  String toString() => 'JoinResponse(liveUrl: $liveUrl, expires: $expiresAt)';
+  String toString() =>
+      'JoinResponse(iframeUrl: $iframeUrl, expires: $expiresAt)';
 }

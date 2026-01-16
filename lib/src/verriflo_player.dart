@@ -19,16 +19,13 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 
 /// Primary widget for embedding Verriflo live classroom.
 ///
-/// Renders an interactive WebView containing the classroom stream with
-/// built-in controls for quality selection and fullscreen mode. Events
-/// from the classroom are forwarded to your app through callbacks.
+/// Renders an interactive WebView containing the classroom stream.
 ///
-/// Basic usage with token:
+/// Basic usage:
 /// ```dart
 /// VerrifloPlayer(
-///   token: 'eyJhbGciOiJIUz...',
+///   iframeUrl: 'https://live.verriflo.com/iframe/live?token=eyJ...',
 ///   onClassEnded: () => Navigator.pop(context),
-///   onKicked: (reason) => showKickedDialog(reason),
 /// )
 /// ```
 ///
@@ -57,8 +54,7 @@ class VerrifloPlayer extends StatefulWidget {
   final VerrifloPlayerController? controller;
 
   /// Full iframe URL containing the token.
-  /// If provided, [token] and [liveBaseUrl] are extracted from this URL.
-  /// Example: 'https://staging.live.verriflo.com/iframe/live?token=eyJ...'
+  /// Example: 'https://live.verriflo.com/iframe/live?token=eyJ...'
   final String? iframeUrl;
 
   /// Background color shown while loading or on error.
