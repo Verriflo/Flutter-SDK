@@ -9,6 +9,7 @@ import 'verriflo_event.dart';
 import 'video_quality.dart';
 import 'classroom_state.dart';
 import 'verriflo_player_controller.dart';
+import 'iframe_commands.dart';
 
 /// Callback signature for SDK events.
 typedef VerrifloEventCallback = void Function(VerrifloEvent event);
@@ -52,11 +53,6 @@ typedef StateChangeCallback = void Function(ClassroomState state);
 /// await controller.forceLeave();
 /// ```
 class VerrifloPlayer extends StatefulWidget {
-  /// Authentication token for the classroom.
-  /// Obtain this by calling the SDK join API endpoint.
-  /// Optional if [iframeUrl] is provided.
-  final String? token;
-
   /// Optional controller for programmatic control.
   final VerrifloPlayerController? controller;
 
@@ -64,11 +60,6 @@ class VerrifloPlayer extends StatefulWidget {
   /// If provided, [token] and [liveBaseUrl] are extracted from this URL.
   /// Example: 'https://staging.live.verriflo.com/iframe/live?token=eyJ...'
   final String? iframeUrl;
-
-  /// Base URL for the Verriflo Live iframe.
-  /// Defaults to 'https://live.verriflo.com/iframe/live'.
-  /// Ignored if [iframeUrl] is provided.
-  final String liveBaseUrl;
 
   /// Background color shown while loading or on error.
   final Color backgroundColor;
@@ -109,10 +100,8 @@ class VerrifloPlayer extends StatefulWidget {
 
   const VerrifloPlayer({
     super.key,
-    this.token,
     this.controller,
     this.iframeUrl,
-    this.liveBaseUrl = 'https://live.verriflo.com/iframe/live',
     this.backgroundColor = Colors.transparent,
     this.onFullscreenToggle,
     this.onChatToggle,
@@ -124,11 +113,7 @@ class VerrifloPlayer extends StatefulWidget {
     this.onKicked,
     this.onError,
     this.showControls = true,
-  }) : assert(
-          (token != null && iframeUrl == null) ||
-              (token == null && iframeUrl != null),
-          'Either token or iframeUrl must be provided, but not both',
-        );
+  });
 
   @override
   State<VerrifloPlayer> createState() => _VerrifloPlayerState();
@@ -143,48 +128,23 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
   ClassroomState _state = ClassroomState.connecting;
   VideoQuality _currentQuality = VideoQuality.auto;
+  bool _pageLoadedSuccessfully = false;
 
   // Overlay state for ended/kicked screens
   bool _showEndedOverlay = false;
   bool _showKickedOverlay = false;
   String? _kickReason;
 
-  // Parsed values from iframeUrl
-  late final String _effectiveToken;
-  late final String _effectiveBaseUrl;
-
   @override
   void initState() {
     super.initState();
     _currentQuality = widget.initialQuality;
 
-    // Parse iframeUrl if provided, otherwise use separate token/baseUrl
-    if (widget.iframeUrl != null) {
-      final parsed = _parseIframeUrl(widget.iframeUrl!);
-      _effectiveToken = parsed.token;
-      _effectiveBaseUrl = parsed.baseUrl;
-    } else {
-      _effectiveToken = widget.token!;
-      _effectiveBaseUrl = widget.liveBaseUrl;
+    if (widget.iframeUrl == null) {
+      throw ArgumentError('iframeUrl must be provided');
     }
 
     _initializeWebView();
-  }
-
-  /// Parse iframe URL to extract token and base URL.
-  ({String token, String baseUrl}) _parseIframeUrl(String iframeUrl) {
-    final uri = Uri.parse(iframeUrl);
-    final token = uri.queryParameters['token'];
-
-    if (token == null || token.isEmpty) {
-      throw ArgumentError('iframeUrl must contain a token parameter');
-    }
-
-    // Extract base URL (everything before query parameters)
-    final baseUrl =
-        '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}${uri.path}';
-
-    return (token: token, baseUrl: baseUrl);
   }
 
   @override
@@ -270,7 +230,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
         'VerrifloSDK',
         onMessageReceived: _handleJsMessage,
       )
-      ..loadRequest(Uri.parse('$_effectiveBaseUrl?token=$_effectiveToken'));
+      ..loadRequest(Uri.parse(widget.iframeUrl!));
 
     // Listen for postMessage events from iframe (for force leave and other events)
     _setupPostMessageListener(controller);
@@ -317,7 +277,10 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
 
     // Send initial quality setting and enable audio after page loads
     Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) _sendQualityToIframe(_currentQuality);
+      if (mounted) {
+        _sendQualityToIframe(_currentQuality);
+        _enableAudio();
+      }
     });
   }
 
@@ -482,7 +445,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   void _sendQualityToIframe(VideoQuality quality) {
     final script = '''
       window.postMessage({
-        type: 'setQuality',
+        type: '${IframeCommand.setQuality}',
         data: { quality: '${quality.jsValue}' }
       }, '*');
     ''';
@@ -494,7 +457,7 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   void _enableAudio() {
     const script = '''
       window.postMessage({
-        type: 'enableAudio',
+        type: '${IframeCommand.enableAudio}',
         data: {}
       }, '*');
     ''';
