@@ -642,48 +642,69 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
     );
   }
 
+  /// Build a control button with a pill-shaped semi-transparent background.
+  Widget _buildControlButton({
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: child,
+    );
+  }
+
   Widget _buildControlBar() {
     return Positioned(
-      bottom: 0,
+      bottom: 12,
       left: 0,
       right: 0,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [Colors.black87, Colors.transparent],
-          ),
-        ),
+      // No gradient overlay - transparent background
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            // Quality selector
-            _buildQualitySelector(),
+            // Chat toggle (fullscreen only) - left side
+            if (widget.onChatToggle != null)
+              _buildControlButton(
+                child: IconButton(
+                  icon: const Icon(Icons.chat_bubble_outline,
+                      color: Colors.white),
+                  onPressed: widget.onChatToggle,
+                  tooltip: 'Toggle Chat',
+                ),
+              ),
 
             const Spacer(),
 
-            // Chat toggle (fullscreen only)
-            if (widget.onChatToggle != null)
-              IconButton(
-                icon:
-                    const Icon(Icons.chat_bubble_outline, color: Colors.white),
-                onPressed: widget.onChatToggle,
-                tooltip: 'Toggle Chat',
-              ),
+            // Right side controls - grouped together
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Quality selector (icon only)
+                _buildQualitySelector(),
 
-            // Fullscreen toggle
-            if (widget.onFullscreenToggle != null)
-              IconButton(
-                icon: Icon(
-                  widget.isFullscreen
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  color: Colors.white,
-                ),
-                onPressed: widget.onFullscreenToggle,
-                tooltip: widget.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
-              ),
+                const SizedBox(width: 8),
+
+                // Fullscreen toggle
+                if (widget.onFullscreenToggle != null)
+                  _buildControlButton(
+                    child: IconButton(
+                      icon: Icon(
+                        widget.isFullscreen
+                            ? Icons.fullscreen_exit
+                            : Icons.fullscreen,
+                        color: Colors.white,
+                      ),
+                      onPressed: widget.onFullscreenToggle,
+                      tooltip: widget.isFullscreen
+                          ? 'Exit Fullscreen'
+                          : 'Fullscreen',
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
@@ -693,26 +714,18 @@ class _VerrifloPlayerState extends State<VerrifloPlayer> {
   Widget _buildQualitySelector() {
     return PopupMenuButton<VideoQuality>(
       onSelected: _setQuality,
-      offset: const Offset(0, -160),
+      offset: const Offset(0, -200),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: const Color(0xFF2A2A2A),
+      tooltip: 'Video Quality',
+      // Icon-only button with pill background
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.black38,
-          borderRadius: BorderRadius.circular(8),
+          color: Colors.black.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.settings, color: Colors.white, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              _currentQuality.label,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-            ),
-          ],
-        ),
+        child: const Icon(Icons.settings, color: Colors.white, size: 24),
       ),
       itemBuilder: (_) => VideoQuality.values.map((quality) {
         final isSelected = quality == _currentQuality;
